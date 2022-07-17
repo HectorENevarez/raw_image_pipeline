@@ -10,6 +10,7 @@
 
 // Project includes
 #include "image_processing.h"
+#include "cuda_optimization.h"
 
 
 // -----------------------------------------------------------------------------------------------------------------------------
@@ -127,6 +128,36 @@ void ImageProcessor::BilinearInterpolation(float *r, float *g, float *b){
     cv::imwrite(save_loc, demosaiced);
 }
 
+void ImageProcessor::BilinearInterpolationCuda(float *r, float *g, float *b){
+    if (en_timing) _debug_timing_manager(start_timer);
+    
+    // convert to array to mat
+    cv::Mat demosaiced;
+    cv::Mat r_mat(800, 1280, CV_32F, r);
+    cv::Mat g_mat(800, 1280, CV_32F, g);
+    cv::Mat b_mat(800, 1280, CV_32F, b);
+    convolution_2d_cuda(r_mat, g_mat, b_mat, demosaiced);
+
+
+    // std::vector<cv::Mat> rgb(3);
+    // rgb[0].push_back(r_mat);
+    // rgb[1].push_back(g_mat);
+    // rgb[2].push_back(b_mat);
+
+    // cv::filter2D(rgb[0], rgb[0], CV_32F, H_RB);
+    // cv::filter2D(rgb[1], rgb[1], CV_32F, H_G);
+    // cv::filter2D(rgb[2], rgb[2], CV_32F, H_RB);
+
+    // cv::Mat demosaiced;
+    // cv::merge(rgb, demosaiced);
+    // demosaiced.convertTo(demosaiced, CV_8UC3, 255.0);
+
+    if (en_timing) _debug_timing_manager(stop_timer);
+
+    // // Write image to output
+    // cv::imwrite(save_loc, demosaiced);
+}
+
 
 // -----------------------------------------------------------------------------------------------------------------------------
 // Begin demosaicing image
@@ -139,7 +170,13 @@ void ImageProcessor::DemosaicImage() {
 
     Mipi10ExtractChannels(r, g, b);
 
-    BilinearInterpolation(r, g, b);
+
+    if (backend == cpu){ // cpu based bilinear interpolation
+        BilinearInterpolation(r, g, b);
+    }
+    else if (backend == cuda){
+        BilinearInterpolationCuda(r, g, b);
+    }
 
     // cleanup
     delete[] r;
@@ -179,6 +216,9 @@ ImageProcessor::ImageProcessor(string image_file, int width, int height, string 
         fprintf(stderr, "Failed to read complete raw image: %s\n", strerror(errno));
         // TODO: handle errors
     }
+
+    // select backend to be used
+    backend_selection();
 }
 
 

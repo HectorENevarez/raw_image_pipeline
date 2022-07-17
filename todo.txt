@@ -1,0 +1,4 @@
+1. Convolutions using CUDA for quicker image proc times.
+2. AWB algorithm
+3. QT gui for easy drag and drop interface
+4. Better support for other image formats rawX debayering
