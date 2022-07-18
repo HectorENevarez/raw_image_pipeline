@@ -41,41 +41,68 @@ static inline void _safe_cuda_call(cudaError err, const char* msg, const char* f
 // -----------------------------------------------------------------------------------------------------------------------------
 // Kernel convolution logic
 // -----------------------------------------------------------------------------------------------------------------------------
-__global__ void conv_2d(float *channel, float *channel_out, int width, int height, int step, float *filter_kernel){
+__global__ void sep_row_conv(float *r, float *g, float *b, float *r_out, float *g_out, float *b_out, int width, int height, float *filter_kernel){
+    
+    extern __shared__ float data_r[];
+    extern __shared__ float data_g[];
+    extern __shared__ float data_b[];
+
     int radius = 1; // defined kernels only have radius of 1
     int x_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int y_idx = blockIdx.y * blockDim.y + threadIdx.y;
-    // printf("(%d %d)\n", x_idx, y_idx);
 
-    // Make sure that we're within bounds
-    if ((x_idx < width) && (y_idx < height)) {
-        float val = 0;
-        float acc_val = 0;
+    // sanity check
+    if (x_idx >= width || y_idx >= height) return;
 
-        // location of pixel
-		int pix_id = y_idx * step + x_idx;
+    const unsigned int loc = (blockIdx.x*blockDim.x + threadIdx.x) + (blockIdx.y*blockDim.y)*width + threadIdx.y*width;
 
-		for (int i = -radius; i <= radius; i++) {
-			for (int j = -radius; j <= radius; j++) {
+    float acc_r = 0;
+    float acc_g = 0;
+    float acc_b = 0;
 
-				//Skip violations (which will lead to zero by default
-				if ((x_idx + i < 0) || (x_idx + i >= width) || (y_idx + j < 0) || (y_idx + j >= height)) continue;
+    float val_r = 0;
+    float val_g = 0;
+    float val_b = 0;
 
-				//Get kernel value
-				int temp = filter_kernel[i + radius + (j+radius)*((radius << 1) + 1)];
+    int w = blockDim.x;
 
-				//Fetch the three channel values
-                const float pix_val = channel[pix_id];
-                val = pix_val * temp;
-                
-                // cumulative sum
-                acc_val += val;
-			}
-		}
+#pragma unroll 3 
+    for (int i = -w; i <= w; i += w){
+        int x_zero = threadIdx.x + i;
+        int new_loc = loc + i;
+        if (x_zero < -radius || x_zero >= radius + w || new_loc < 0 || new_loc >= width*height)
+            continue;
 
-        channel_out[pix_id] = acc_val;
+        data_r[threadIdx.x + i + radius + (threadIdx.y) * (blockDim.x + (radius << 1))] = r[new_loc];
+        data_g[threadIdx.x + i + radius + (threadIdx.y) * (blockDim.x + (radius << 1))] = g[new_loc];
+        data_b[threadIdx.x + i + radius + (threadIdx.y) * (blockDim.x + (radius << 1))] = b[new_loc];
     }
 
+    __syncthreads();
+
+    for (int i = -radius; i <= radius; i++){
+        float t_r = data_r[threadIdx.x + i + radius + (threadIdx.y) * (blockDim.x + (radius << 1))];
+        float t_g = data_g[threadIdx.x + i + radius + (threadIdx.y) * (blockDim.x + (radius << 1))];
+        float t_b = data_b[threadIdx.x + i + radius + (threadIdx.y) * (blockDim.x + (radius << 1))];
+
+        float temp = filter_kernel[i + radius];
+
+        val_r = t_r;
+        val_g = t_g;
+        val_b = t_b;
+
+        val_r *= temp;
+        val_g *= temp;
+        val_b *= temp;
+
+        acc_r += val_r;
+        acc_g += val_g;
+        acc_b += val_b;
+    }
+
+    r_out[loc] = acc_r;
+    g_out[loc] = acc_g;
+    b_out[loc] = acc_b;
 }
 
 
@@ -107,11 +134,10 @@ int convolution_2d_cuda(const cv::Mat& r, const cv::Mat& g, const cv::Mat& b, cv
     SAFE_CALL(cudaMemcpy(d_G, g.ptr(), channel_bytes, cudaMemcpyHostToDevice), "CUDA Memcpy Host To Device Failed");
     SAFE_CALL(cudaMemcpy(d_B, b.ptr(), channel_bytes, cudaMemcpyHostToDevice), "CUDA Memcpy Host To Device Failed");
 
-
     // launch the convolution kernel
-    conv_2d<<<num_blocks, threads_per_block>>>(d_R, d_R_out, r.cols, r.rows, r.step, H_RB);
-    conv_2d<<<num_blocks, threads_per_block>>>(d_G, d_G_out, g.cols, g.rows, g.step, radius, H_G);
-    conv_2d<<<num_blocks, threads_per_block>>>(d_B, d_B_out, b.cols, b.rows, b.step, radius, H_RB);
+    sep_row_conv<<<num_blocks, threads_per_block>>>(d_R, d_G, d_B, d_R_out, d_G_out, d_B_out, r.cols, r.rows, H_RB);
+    // conv_2d<<<num_blocks, threads_per_block>>>(d_G, d_G_out, g.cols, g.rows, g.step, radius, H_G);
+    // conv_2d<<<num_blocks, threads_per_block>>>(d_B, d_B_out, b.cols, b.rows, b.step, radius, H_RB);
 
     // wait for threads to complete
     SAFE_CALL(cudaDeviceSynchronize(),"Kernel Launch Failed");
@@ -123,7 +149,6 @@ int convolution_2d_cuda(const cv::Mat& r, const cv::Mat& g, const cv::Mat& b, cv
     SAFE_CALL(cudaFree(d_R_out),"CUDA Free Failed");
     SAFE_CALL(cudaFree(d_G_out),"CUDA Free Failed");
     SAFE_CALL(cudaFree(d_B_out),"CUDA Free Failed");
-
 
     return 0;
 }
