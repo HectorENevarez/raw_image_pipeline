@@ -14,7 +14,7 @@ git clone https://github.com/HectorENevarez/raw_image_pipeline.git
 cd raw_image_pipeline
 ```
 
-Next modify the configuration settings in the main file
+Next modify the configuration settings in the config_file.h
 ``` c++
 // set config values
 int width = 1280;

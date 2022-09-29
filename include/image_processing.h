@@ -33,19 +33,6 @@ class ImageProcessor {
 
         void Mipi10ExtractChannels(float *r, float *g, float *b);
         void BilinearInterpolation(float *r, float *g, float *b);
-        void BilinearInterpolationCuda(float *r, float *g, float *b);
-
-        // backend proc information
-        enum ImageProcBackend {
-            cpu = 0,
-            cuda = 1
-        };
-
-        ImageProcBackend backend; 
-        inline void backend_selection(){
-            backend = PROC_BACKEND;
-            printf("Backend is set to %d\n", backend);
-        }
 };
 
 #endif // IMAGE_PROCESSING_H

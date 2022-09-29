@@ -3,8 +3,8 @@
 #include <iostream>
 
 // Project includes
+#include "config_file.h"
 #include "image_processing.h"
-
 
 static int en_debug = 0;
 static int en_timing = 0;
@@ -75,14 +75,6 @@ int main(int argc, char* argv[]) {
 
 	// check for options
 	if(_parse_opts(argc, argv)) return -1;
-
-    // set config values
-    int width = 1280;
-    int height = 800;
-    string cfa = "null"; // not yet supported
-    string format = "mipi_raw"; // currently only supported format
-    string save_loc = "images/result.png";
-    string image_file = "images/test_image.raw";
 
     // Initialize image processor
     ImageProcessor *img_proc = new ImageProcessor(image_file, width, height, format, cfa, save_loc);
